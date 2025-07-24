@@ -16,6 +16,10 @@ class ResultCreate(BaseModel):
     incorrectAnswers: int
     blankAnswers: int
     multipleMarks: int
+    sponsorDS: Optional[str] = None  # Added optional field
+    course: Optional[str] = None     # Added optional field
+    wing: Optional[str] = None       # Added optional field
+    module: Optional[str] = None     # Added optional field
 
 class ResultResponse(BaseModel):
     examId: str
@@ -31,4 +35,8 @@ class ResultResponse(BaseModel):
     incorrectAnswers: int
     blankAnswers: int
     multipleMarks: int
+    sponsorDS: Optional[str] = None  # Added optional field
+    course: Optional[str] = None     # Added optional field
+    wing: Optional[str] = None       # Added optional field
+    module: Optional[str] = None     # Added optional field
     processedAt: datetime

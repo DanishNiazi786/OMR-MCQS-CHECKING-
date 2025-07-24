@@ -11,17 +11,30 @@ import {
   Filter
 } from 'lucide-react';
 import { useApi } from '../context/ApiContext';
-//DAASDASDASD
+
 interface Exam {
   examId: string;
   name: string;
+  dateTime: string;
+  time: string;
   numQuestions: number;
-  passingPercentage: number;
   marksPerMcq: number;
+  passingPercentage: number;
   wing: string;
   course: string;
   module: string;
   sponsorDS: string;
+  instructions: string;
+  studentsUploaded: boolean;
+  solutionUploaded: boolean;
+  createdAt: string;
+  createdBy: string;
+  answerKey?: string[]; // Added to store answer key
+}
+
+interface SolutionItem {
+  question: number;
+  answer: string;
 }
 
 interface ScanProgress {
@@ -68,6 +81,7 @@ export const ScanProcess: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'pass' | 'fail'>('all');
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
+  const [solution, setSolution] = useState<SolutionItem[]>([]);
 
   useEffect(() => {
     fetchExams();
@@ -81,6 +95,20 @@ export const ScanProcess: React.FC = () => {
     } catch (error) {
       console.error('Failed to fetch exams:', error);
       setError('Failed to fetch exams. Please try again.');
+    }
+  };
+
+  const fetchSolution = async (examId: string) => {
+    try {
+      const response = await api.get(`/solutions/${examId}`);
+      setSolution(response.data.solutions);
+      // Update exam with answer key
+      setExams(prev => prev.map(exam => 
+        exam.examId === examId ? { ...exam, answerKey: response.data.solutions.map((sol: SolutionItem) => sol.answer) } : exam
+      ));
+    } catch (error) {
+      console.error('Failed to fetch solution:', error);
+      setError('Failed to fetch solution. Please try again.');
     }
   };
 
@@ -101,12 +129,14 @@ export const ScanProcess: React.FC = () => {
       return;
     }
 
+    // Fetch solution before starting scan
+    await fetchSolution(selectedExam);
+
     setIsScanning(true);
     setError('');
     setSuccess('');
     setResults([]);
     
-    // Initialize progress
     const initialProgress = {
       currentSheet: 0,
       totalSheets: selectedFiles.length,
@@ -129,7 +159,6 @@ export const ScanProcess: React.FC = () => {
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
         
-        // Update current sheet being processed
         setProgress(prev => ({
           ...prev,
           currentSheet: i + 1,
@@ -141,7 +170,6 @@ export const ScanProcess: React.FC = () => {
           processedResults.push(result);
           processedCount++;
           
-          // Update progress with successful processing
           setProgress(prev => ({
             ...prev,
             processed: processedCount,
@@ -152,22 +180,18 @@ export const ScanProcess: React.FC = () => {
           console.error(`Failed to process sheet ${i + 1}:`, error);
           errorCount++;
           
-          // Update progress with error
           setProgress(prev => ({
             ...prev,
             processed: processedCount,
             errors: errorCount
           }));
           
-          // Don't set error message here to avoid overwriting, just log it
           console.error(`Sheet ${i + 1} processing failed: ${error.message}`);
         }
 
-        // Small delay between processing
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // Final progress update
       setProgress(prev => ({ 
         ...prev, 
         status: 'completed',
@@ -175,9 +199,10 @@ export const ScanProcess: React.FC = () => {
         errors: errorCount
       }));
 
-      // Set success message with actual processed count
       if (processedCount > 0) {
         setSuccess(`Successfully processed ${processedCount} out of ${selectedFiles.length} answer sheets`);
+        // Publish results after successful processing
+        await publishResults(processedResults, selectedExamData);
       }
       
       if (errorCount > 0) {
@@ -213,31 +238,50 @@ export const ScanProcess: React.FC = () => {
 
       const responseData = response.data.response;
       const totalMarks = examData.numQuestions * examData.marksPerMcq;
-      const percentage = totalMarks > 0 ? (responseData.score / totalMarks) * 100 : 0;
+      let correctAnswers = 0;
+      let incorrectAnswers = 0;
+      let blankAnswers = 0;
+      let invalidAnswers = 0;
+
+      // Compare responses with solution
+      const responses = responseData.responses;
+      solution.forEach((sol, index) => {
+        const response = responses[index] || '';
+        if (response === '') {
+          blankAnswers++;
+        } else if (response === sol.answer) {
+          correctAnswers++;
+        } else if (response === 'MULTIPLE' || response === 'INVALID') {
+          invalidAnswers++;
+        } else {
+          incorrectAnswers++;
+        }
+      });
+
+      const score = correctAnswers * examData.marksPerMcq;
+      const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
       const passFailStatus = percentage >= examData.passingPercentage ? 'Pass' : 'Fail';
 
       const result: ProcessingResult = {
         studentId: responseData.studentId,
         studentName: `Student ${sheetNumber}`,
-        score: responseData.score,
+        score,
         totalMarks,
         percentage,
         accuracy: responseData.accuracy,
         confidence: responseData.processingMetadata.confidence,
         status: responseData.processingMetadata.confidence > 70 ? 'success' : responseData.processingMetadata.confidence > 50 ? 'warning' : 'error',
         passFailStatus,
-        responses: responseData.responses,
-        correctAnswers: responseData.correctAnswers,
-        incorrectAnswers: responseData.incorrectAnswers,
-        blankAnswers: responseData.blankAnswers,
-        invalidAnswers: responseData.multipleMarks + responseData.invalidAnswers,
+        responses,
+        correctAnswers,
+        incorrectAnswers,
+        blankAnswers,
+        invalidAnswers,
         issues: responseData.processingMetadata.confidence < 70 ? ['Low confidence detection'] : [],
       };
 
-      // Add to results immediately
       setResults(prev => [...prev, result]);
       
-      // Save result to database
       await saveResultToDatabase(result, examData);
       
       return result;
@@ -271,8 +315,34 @@ export const ScanProcess: React.FC = () => {
       await api.post('/results/save', resultData);
     } catch (error: any) {
       console.error('Failed to save result to database:', error);
-      // Don't throw here, just log the error
-      // The scanning should continue even if database save fails
+    }
+  };
+
+  const publishResults = async (results: ProcessingResult[], examData: Exam) => {
+    try {
+      const publishData = {
+        examId: selectedExam,
+        examName: examData.name,
+        results: results.map(result => ({
+          studentId: result.studentId,
+          studentName: result.studentName,
+          score: result.score,
+          totalMarks: result.totalMarks,
+          percentage: result.percentage,
+          passFailStatus: result.passFailStatus,
+          correctAnswers: result.correctAnswers,
+          incorrectAnswers: result.incorrectAnswers,
+          blankAnswers: result.blankAnswers,
+          multipleMarks: result.invalidAnswers,
+          responses: result.responses
+        }))
+      };
+
+      await api.post('/results/publish', publishData);
+      setSuccess(prev => `${prev} | Results published successfully!`);
+    } catch (error: any) {
+      console.error('Failed to publish results:', error);
+      setError('Failed to publish results. Please try again.');
     }
   };
 
@@ -285,7 +355,6 @@ export const ScanProcess: React.FC = () => {
     try {
       const selectedExamData = exams.find(exam => exam.examId === selectedExam);
       
-      // Prepare the data for PDF generation
       const pdfData = {
         examId: selectedExam,
         examName: selectedExamData?.name || 'Exam Results',
@@ -307,7 +376,6 @@ export const ScanProcess: React.FC = () => {
         responseType: 'blob'
       });
 
-      // Create and download the PDF
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -340,7 +408,7 @@ export const ScanProcess: React.FC = () => {
     setSelectedFiles([]);
     setError('');
     setSuccess('');
-    // Reset file input
+    setSolution([]);
     const fileInput = document.getElementById('file-upload') as HTMLInputElement;
     if (fileInput) {
       fileInput.value = '';
@@ -355,14 +423,12 @@ export const ScanProcess: React.FC = () => {
 
   const selectedExamData = exams.find(exam => exam.examId === selectedExam);
 
-  // Calculate summary for footer
   const resultSummary = results.length > 0
     ? `Processed: ${progress.processed}, Errors: ${progress.errors}, Pass: ${results.filter(r => r.passFailStatus === 'Pass').length}, Fail: ${results.filter(r => r.passFailStatus === 'Fail').length}`
     : 'No results yet';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col min-h-screen">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Bubble Sheet Scanning</h1>
         <p className="text-gray-600 mt-2">
@@ -370,7 +436,6 @@ export const ScanProcess: React.FC = () => {
         </p>
       </div>
 
-      {/* Status Messages */}
       {success && (
         <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
           <div className="flex items-center space-x-3">
@@ -390,9 +455,7 @@ export const ScanProcess: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-grow">
-        {/* Configuration Panel */}
         <div className="lg:col-span-1 space-y-6">
-          {/* Exam Selection */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Exam Configuration</h2>
             
@@ -403,7 +466,12 @@ export const ScanProcess: React.FC = () => {
                 </label>
                 <select
                   value={selectedExam}
-                  onChange={(e) => setSelectedExam(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedExam(e.target.value);
+                    if (e.target.value) {
+                      fetchSolution(e.target.value);
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   disabled={isScanning}
                 >
@@ -432,7 +500,6 @@ export const ScanProcess: React.FC = () => {
             </div>
           </div>
 
-          {/* File Upload */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Upload Answer Sheets</h2>
             
@@ -476,7 +543,6 @@ export const ScanProcess: React.FC = () => {
             </div>
           </div>
 
-          {/* Validation Rules */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Validation Rules</h2>
             <div className="space-y-3 text-sm text-gray-600">
@@ -504,9 +570,7 @@ export const ScanProcess: React.FC = () => {
           </div>
         </div>
 
-        {/* Processing Panel */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Controls */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-gray-900">Processing Controls</h2>
@@ -552,7 +616,6 @@ export const ScanProcess: React.FC = () => {
               </div>
             </div>
 
-            {/* Progress Indicator */}
             {progress.status !== 'idle' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -588,7 +651,6 @@ export const ScanProcess: React.FC = () => {
             )}
           </div>
 
-          {/* Results */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-gray-900">Processing Results</h2>
@@ -697,7 +759,6 @@ export const ScanProcess: React.FC = () => {
         </div>
       </div>
 
-      {/* Footer with Result Summary */}
       <footer className="mt-8 py-4 text-center">
         <p className="text-gray-600 text-sm font-medium">{resultSummary}</p>
       </footer>

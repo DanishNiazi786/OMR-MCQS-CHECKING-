@@ -17,14 +17,15 @@ def get_database():
 @router.post("/save")
 async def save_result(result: ResultCreate, db=Depends(get_database)):
     try:
+        # Validate input data
+        result_data = result.dict()
+        result_data["processedAt"] = datetime.utcnow()
+
         # Check if result already exists
         existing_result = await db.results.find_one({
             "examId": result.examId,
             "studentId": result.studentId
         })
-
-        result_data = result.dict()
-        result_data["processedAt"] = datetime.utcnow()
 
         if existing_result:
             # Update existing result
@@ -37,8 +38,10 @@ async def save_result(result: ResultCreate, db=Depends(get_database)):
             await db.results.insert_one(result_data)
 
         return {"message": "Result saved successfully"}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=f"Invalid input data: {str(ve)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to save result")
+        raise HTTPException(status_code=500, detail=f"Failed to save result: {str(e)}")
 
 @router.get("/all", response_model=List[dict])
 async def get_all_results(db=Depends(get_database)):
@@ -217,10 +220,10 @@ async def get_exam_results(
         sort_order = -1 if order == "desc" else 1
         skip = (page - 1) * limit
 
-        cursor = db.responses.find({"examId": exam_id}).sort(sort_by, sort_order).skip(skip).limit(limit)
+        cursor = db.results.find({"examId": exam_id}).sort(sort_by, sort_order).skip(skip).limit(limit)  # Changed to db.results
         responses = await cursor.to_list(length=None)
 
-        total = await db.responses.count_documents({"examId": exam_id})
+        total = await db.results.count_documents({"examId": exam_id})  # Changed to db.results
 
         # Convert ObjectId to string
         for response in responses:
@@ -246,7 +249,7 @@ async def get_exam_results(
         raise HTTPException(status_code=500, detail="Failed to fetch results")
 
 async def calculate_exam_stats(exam_id: str, db):
-    cursor = db.responses.find({"examId": exam_id})
+    cursor = db.results.find({"examId": exam_id})  # Changed to db.results
     responses = await cursor.to_list(length=None)
     
     exam = await db.exams.find_one({"examId": exam_id})
@@ -264,13 +267,13 @@ async def calculate_exam_stats(exam_id: str, db):
 
     scores = [r["score"] for r in responses]
     total_students = len(responses)
-    average_score = sum(scores) / total_students
-    highest_score = max(scores)
-    lowest_score = min(scores)
+    average_score = sum(scores) / total_students if total_students > 0 else 0
+    highest_score = max(scores) if scores else 0
+    lowest_score = min(scores) if scores else 0
     
     passing_score = exam.get("settings", {}).get("passingScore", 60)
     passing_count = len([s for s in scores if (s / exam["numQuestions"]) * 100 >= passing_score])
-    passing_rate = (passing_count / total_students) * 100
+    passing_rate = (passing_count / total_students) * 100 if total_students > 0 else 0
 
     # Score distribution
     ranges = [
@@ -287,7 +290,7 @@ async def calculate_exam_stats(exam_id: str, db):
         score_distribution.append({
             "range": range_item["label"],
             "count": count,
-            "percentage": (count / total_students) * 100
+            "percentage": (count / total_students) * 100 if total_students > 0 else 0
         })
 
     return {
