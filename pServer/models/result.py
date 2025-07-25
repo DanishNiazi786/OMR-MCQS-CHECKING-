@@ -6,6 +6,8 @@ class ResultCreate(BaseModel):
     examId: str
     studentId: str
     studentName: str
+    rank: Optional[str] = None
+    lockerNumber: Optional[str] = None
     examName: str
     responses: List[str]
     score: int
@@ -16,15 +18,17 @@ class ResultCreate(BaseModel):
     incorrectAnswers: int
     blankAnswers: int
     multipleMarks: int
-    sponsorDS: Optional[str] = None  # Added optional field
-    course: Optional[str] = None     # Added optional field
-    wing: Optional[str] = None       # Added optional field
-    module: Optional[str] = None     # Added optional field
+    sponsorDS: Optional[str] = None
+    course: Optional[str] = None
+    wing: Optional[str] = None
+    module: Optional[str] = None
 
 class ResultResponse(BaseModel):
     examId: str
     studentId: str
     studentName: str
+    rank: Optional[str] = None
+    lockerNumber: Optional[str] = None
     examName: str
     responses: List[str]
     score: int
@@ -35,8 +39,8 @@ class ResultResponse(BaseModel):
     incorrectAnswers: int
     blankAnswers: int
     multipleMarks: int
-    sponsorDS: Optional[str] = None  # Added optional field
-    course: Optional[str] = None     # Added optional field
-    wing: Optional[str] = None       # Added optional field
-    module: Optional[str] = None     # Added optional field
+    sponsorDS: Optional[str] = None
+    course: Optional[str] = None
+    wing: Optional[str] = None
+    module: Optional[str] = None
     processedAt: datetime

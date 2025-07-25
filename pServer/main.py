@@ -6,31 +6,40 @@ import uvicorn
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+import logging
 
 # Import routers from the correct 'routes' directory
 from routers import exams, scan, results, reports, settings, students, omr, solutions
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 # Database connection
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb+srv://dani:123@cluster0.zgjz474.mongodb.net/omr_database?retryWrites=true&w=majority")
+OCR_ENABLED = os.getenv("OCR_ENABLED", "false").lower() == "true"  # New env var for OCR toggle
 client = None
 database = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global client, database
-    client = AsyncIOMotorClient(MONGODB_URL)
-    database = client.get_database("omr_database")  # Specify database name
-    print(f"MongoDB connected successfully at {datetime.utcnow().isoformat()}")
-    app.state.database = database
-    yield
-    if client:
-        client.close()
-        print(f"MongoDB connection closed at {datetime.utcnow().isoformat()}")
+    try:
+        client = AsyncIOMotorClient(MONGODB_URL)
+        database = client.get_database("omr_database")  # Specify database name
+        logger.info(f"MongoDB connected successfully at {datetime.utcnow().isoformat()}Z")
+        app.state.database = database
+        app.state.ocr_enabled = OCR_ENABLED  # Store OCR toggle in app state
+        yield
+    finally:
+        if client:
+            client.close()
+            logger.info(f"MongoDB connection closed at {datetime.utcnow().isoformat()}Z")
 
 app = FastAPI(
-    title="OMR Processing API",
-    description="Backend API for OMR (Optical Mark Recognition) processing system",
-    version="1.0.0",
+    title="Enhanced OMR Processing API",
+    description="Backend API for Optical Mark Recognition (OMR) processing system with student credential extraction and PDF result generation",
+    version="1.1.0",
     lifespan=lifespan
 )
 
@@ -58,19 +67,21 @@ app.include_router(solutions.router, prefix="/api/solutions", tags=["solutions"]
 async def health_check():
     return {
         "status": "OK",
-        "timestamp": datetime.utcnow().isoformat()  # Updated to current UTC time
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "ocr_enabled": app.state.ocr_enabled,
+        "version": "1.1.0"
     }
 
 # Error handling
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    print(f"Server error: {exc}")
+    logger.error(f"Server error at {datetime.utcnow().isoformat()}Z: {str(exc)}", exc_info=True)
     return HTTPException(
         status_code=500,
         detail={
             "error": "Internal server error",
             "message": str(exc),
-            "timestamp": datetime.utcnow().isoformat()  # Add timestamp for debugging
+            "timestamp": datetime.utcnow().isoformat() + "Z"
         }
     )
 

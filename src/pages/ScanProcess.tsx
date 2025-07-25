@@ -11,6 +11,7 @@ import {
   Filter
 } from 'lucide-react';
 import { useApi } from '../context/ApiContext';
+import axios from 'axios';
 
 interface Exam {
   examId: string;
@@ -29,7 +30,7 @@ interface Exam {
   solutionUploaded: boolean;
   createdAt: string;
   createdBy: string;
-  answerKey?: string[]; // Added to store answer key
+  answerKey?: string[];
 }
 
 interface SolutionItem {
@@ -47,7 +48,9 @@ interface ScanProgress {
 
 interface ProcessingResult {
   studentId: string;
-  studentName?: string;
+  studentName: string;
+  rank: string;
+  lockerNumber: string;
   score: number;
   totalMarks: number;
   percentage: number;
@@ -102,7 +105,6 @@ export const ScanProcess: React.FC = () => {
     try {
       const response = await api.get(`/solutions/${examId}`);
       setSolution(response.data.solutions);
-      // Update exam with answer key
       setExams(prev => prev.map(exam => 
         exam.examId === examId ? { ...exam, answerKey: response.data.solutions.map((sol: SolutionItem) => sol.answer) } : exam
       ));
@@ -129,7 +131,6 @@ export const ScanProcess: React.FC = () => {
       return;
     }
 
-    // Fetch solution before starting scan
     await fetchSolution(selectedExam);
 
     setIsScanning(true);
@@ -201,7 +202,6 @@ export const ScanProcess: React.FC = () => {
 
       if (processedCount > 0) {
         setSuccess(`Successfully processed ${processedCount} out of ${selectedFiles.length} answer sheets`);
-        // Publish results after successful processing
         await publishResults(processedResults, selectedExamData);
       }
       
@@ -243,7 +243,6 @@ export const ScanProcess: React.FC = () => {
       let blankAnswers = 0;
       let invalidAnswers = 0;
 
-      // Compare responses with solution
       const responses = responseData.responses;
       solution.forEach((sol, index) => {
         const response = responses[index] || '';
@@ -264,7 +263,9 @@ export const ScanProcess: React.FC = () => {
 
       const result: ProcessingResult = {
         studentId: responseData.studentId,
-        studentName: `Student ${sheetNumber}`,
+        studentName: responseData.studentName || `Student ${sheetNumber}`,
+        rank: responseData.rank || 'N/A',
+        lockerNumber: responseData.lockerNumber || 'N/A',
         score,
         totalMarks,
         percentage,
@@ -295,26 +296,35 @@ export const ScanProcess: React.FC = () => {
       const resultData = {
         examId: selectedExam,
         studentId: result.studentId,
-        studentName: result.studentName || `Student ${result.studentId}`,
+        studentName: result.studentName,
+        rank: result.rank || null,
+        lockerNumber: result.lockerNumber || null,
         examName: examData.name,
-        score: result.score,
-        totalMarks: result.totalMarks,
-        percentage: result.percentage,
+        score: Number(result.score),
+        totalMarks: Number(result.totalMarks),
+        percentage: Number(result.percentage),
         passFailStatus: result.passFailStatus,
-        responses: result.responses,
-        correctAnswers: result.correctAnswers,
-        incorrectAnswers: result.incorrectAnswers,
-        blankAnswers: result.blankAnswers,
-        multipleMarks: result.invalidAnswers,
-        sponsorDS: examData.sponsorDS,
-        course: examData.course,
-        wing: examData.wing,
-        module: examData.module,
+        responses: result.responses.map(resp => resp === null ? null : String(resp)),
+        correctAnswers: Number(result.correctAnswers),
+        incorrectAnswers: Number(result.incorrectAnswers),
+        blankAnswers: Number(result.blankAnswers),
+        multipleMarks: Number(result.invalidAnswers),
+        sponsorDS: examData.sponsorDS || null,
+        course: examData.course || null,
+        wing: examData.wing || null,
+        module: examData.module || null,
       };
-
-      await api.post('/results/save', resultData);
+      console.log("Saving result to database:", JSON.stringify(resultData, null, 2));
+      console.log("Request URL:", `${api.defaults.baseURL || 'http://localhost:3001'}/api/results/save`);
+      const response = await api.post('/api/results/save', resultData);
+      console.log(`Result saved for student ${result.studentId}:`, response.data);
     } catch (error: any) {
-      console.error('Failed to save result to database:', error);
+      console.error('Failed to save result to database:', {
+        url: `${api.defaults.baseURL || 'http://localhost:3001'}/api/results/save`,
+        error: error.response?.data || error.message,
+        status: error.response?.status,
+      });
+      setError(`Failed to save result: ${error.response?.data?.detail || error.message}`);
     }
   };
 
@@ -326,6 +336,8 @@ export const ScanProcess: React.FC = () => {
         results: results.map(result => ({
           studentId: result.studentId,
           studentName: result.studentName,
+          rank: result.rank,
+          lockerNumber: result.lockerNumber,
           score: result.score,
           totalMarks: result.totalMarks,
           percentage: result.percentage,
@@ -337,7 +349,8 @@ export const ScanProcess: React.FC = () => {
           responses: result.responses
         }))
       };
-
+      console.log("Publishing results:", JSON.stringify(publishData, null, 2));
+      console.log("Request URL:", `${api.defaults.baseURL || 'http://localhost:3001'}/results/publish`);
       await api.post('/results/publish', publishData);
       setSuccess(prev => `${prev} | Results published successfully!`);
     } catch (error: any) {
@@ -352,6 +365,11 @@ export const ScanProcess: React.FC = () => {
       return;
     }
 
+    if (selectedFiles.length !== filteredResults.length) {
+      setError(`Mismatch: ${selectedFiles.length} files selected but ${filteredResults.length} results available`);
+      return;
+    }
+
     try {
       const selectedExamData = exams.find(exam => exam.examId === selectedExam);
       
@@ -361,19 +379,31 @@ export const ScanProcess: React.FC = () => {
         results: filteredResults.map(result => ({
           studentId: result.studentId,
           studentName: result.studentName,
-          score: result.score,
-          totalMarks: result.totalMarks,
-          percentage: result.percentage,
+          rank: result.rank || 'N/A',
+          lockerNumber: result.lockerNumber || 'N/A',
+          score: Number(result.score),
+          totalMarks: Number(result.totalMarks),
+          percentage: Number(result.percentage),
           passFailStatus: result.passFailStatus,
-          correctAnswers: result.correctAnswers,
-          incorrectAnswers: result.incorrectAnswers,
-          blankAnswers: result.blankAnswers,
-          multipleMarks: result.invalidAnswers
-        }))
+          correctAnswers: Number(result.correctAnswers),
+          incorrectAnswers: Number(result.incorrectAnswers),
+          blankAnswers: Number(result.blankAnswers),
+          multipleMarks: Number(result.invalidAnswers),
+        })),
       };
+      console.log("Downloading PDF with data:", JSON.stringify(pdfData, null, 2));
+      console.log("Files:", selectedFiles.map(file => file.name));
+      console.log("Request URL:", `${api.defaults.baseURL || 'http://localhost:3001'}/api/results/download-batch-pdf`);
 
-      const response = await api.post('/results/download-batch-pdf', pdfData, {
-        responseType: 'blob'
+      const formData = new FormData();
+      formData.append('request_data', JSON.stringify(pdfData));
+      selectedFiles.forEach((file, index) => {
+        formData.append('images', file);
+      });
+
+      const response = await api.post('/api/results/download-batch-pdf', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        responseType: 'blob',
       });
 
       const blob = new Blob([response.data], { type: 'application/pdf' });
@@ -386,8 +416,12 @@ export const ScanProcess: React.FC = () => {
       
       setSuccess('PDF downloaded successfully!');
     } catch (error: any) {
-      console.error('PDF download failed:', error);
-      setError('Failed to download PDF. Please try again.');
+      console.error('PDF download failed:', {
+        url: `${api.defaults.baseURL || 'http://localhost:3001'}/api/results/download-batch-pdf`,
+        error: error.response?.data || error.message,
+        status: error.response?.status,
+      });
+      setError(`Failed to download PDF: ${error.response?.data?.detail || error.message}`);
     }
   };
 
@@ -715,6 +749,14 @@ export const ScanProcess: React.FC = () => {
                     </div>
                     
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-600">Rank:</span>
+                        <span className="ml-2 font-medium">{result.rank}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Locker Number:</span>
+                        <span className="ml-2 font-medium">{result.lockerNumber}</span>
+                      </div>
                       <div>
                         <span className="text-gray-600">Percentage:</span>
                         <span className="ml-2 font-medium">{result.percentage.toFixed(1)}%</span>
