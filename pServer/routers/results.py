@@ -210,37 +210,57 @@ async def download_all_pdf(request_data: dict):
         
         # Table headers
         y_pos -= 30
-        p.setFont("Helvetica", 8)
+        p.setFont("Helvetica", 7)  # Reduced font size for headers
         p.drawString(50, y_pos, "Student Name")
-        p.drawString(150, y_pos, "ID")
-        p.drawString(200, y_pos, "Locker")
-        p.drawString(250, y_pos, "Rank")
-        p.drawString(300, y_pos, "Exam")
-        p.drawString(380, y_pos, "Score")
-        p.drawString(420, y_pos, "%")
-        p.drawString(450, y_pos, "Result")
+        p.drawString(130, y_pos, "ID")  # Adjusted x-coordinate
+        p.drawString(210, y_pos, "Locker")  # Adjusted x-coordinate
+        p.drawString(260, y_pos, "Rank")  # Adjusted x-coordinate
+        p.drawString(310, y_pos, "Exam")  # Adjusted x-coordinate
+        p.drawString(390, y_pos, "Score")  # Adjusted x-coordinate
+        p.drawString(440, y_pos, "%")  # Adjusted x-coordinate
+        p.drawString(470, y_pos, "Result")  # Adjusted x-coordinate
 
         # Table rows
         y_pos -= 20
+        p.setFont("Helvetica", 6)  # Reduced font size for rows
         for result in results[:40]:  # Limit to 40 results per page
             if y_pos < 100:  # Start new page if needed
                 p.showPage()
                 y_pos = height - 50
+                # Redraw headers on new page
+                p.setFont("Helvetica", 7)
+                p.drawString(50, y_pos, "Student Name")
+                p.drawString(130, y_pos, "ID")
+                p.drawString(210, y_pos, "Locker")
+                p.drawString(260, y_pos, "Rank")
+                p.drawString(310, y_pos, "Exam")
+                p.drawString(390, y_pos, "Score")
+                p.drawString(440, y_pos, "%")
+                p.drawString(470, y_pos, "Result")
+                y_pos -= 20
+                p.setFont("Helvetica", 6)
 
-            p.drawString(50, y_pos, str(result.get('studentName', ''))[:15])
-            p.drawString(150, y_pos, str(result.get('studentId', '')))
-            p.drawString(200, y_pos, str(result.get('studentInfo', {}).get('lockerNumber', ''))[:10])
-            p.drawString(250, y_pos, str(result.get('studentInfo', {}).get('rank', ''))[:10])
-            p.drawString(300, y_pos, str(result.get('examName', ''))[:12])
-            p.drawString(380, y_pos, f"{result.get('score', 0)}/{result.get('totalMarks', 0)}")
-            p.drawString(420, y_pos, f"{result.get('percentage', 0):.1f}%")
+            # Truncate long text
+            student_name = str(result.get('studentName', ''))[:12]  # Limit to 12 chars
+            student_id = str(result.get('studentId', ''))[:12]  # Limit to 12 chars
+            locker = str(result.get('studentInfo', {}).get('lockerNumber', ''))[:8]
+            rank = str(result.get('studentInfo', {}).get('rank', ''))[:8]
+            exam_name = str(result.get('examName', ''))[:10]
+
+            p.drawString(50, y_pos, student_name)
+            p.drawString(130, y_pos, student_id)
+            p.drawString(210, y_pos, locker)
+            p.drawString(260, y_pos, rank)
+            p.drawString(310, y_pos, exam_name)
+            p.drawString(390, y_pos, f"{result.get('score', 0)}/{result.get('totalMarks', 0)}")
+            p.drawString(440, y_pos, f"{result.get('percentage', 0):.1f}%")
             
             # Color code the result
             if result.get('passFailStatus') == 'Pass':
                 p.setFillColorRGB(0, 0.5, 0)  # Green
             else:
                 p.setFillColorRGB(1, 0, 0)  # Red
-            p.drawString(450, y_pos, str(result.get('passFailStatus', '')))
+            p.drawString(470, y_pos, str(result.get('passFailStatus', '')))
             p.setFillColorRGB(0, 0, 0)  # Reset to black
             
             y_pos -= 15
