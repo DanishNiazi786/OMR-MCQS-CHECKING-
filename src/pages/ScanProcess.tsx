@@ -72,6 +72,7 @@ interface ProcessingResult {
   invalidAnswers: number;
   studentInfo?: StudentInfo;
   filename?: string;
+  processedImage?: string; // Base64 encoded processed image
 }
 
 export const ScanProcess: React.FC = () => {
@@ -93,6 +94,7 @@ export const ScanProcess: React.FC = () => {
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
   const [solution, setSolution] = useState<SolutionItem[]>([]);
+  const [processedImages, setProcessedImages] = useState<any[]>([]);
 
   useEffect(() => {
     fetchExams();
@@ -174,6 +176,11 @@ export const ScanProcess: React.FC = () => {
       });
 
       const { results: batchResults, processedSuccessfully, totalImages } = response.data;
+      
+      // Store processed images for batch PDF generation
+      if (response.data.processedImages) {
+        setProcessedImages(response.data.processedImages);
+      }
 
       const processedResults: ProcessingResult[] = batchResults.map((result: any) => {
         if (!result.success) {
@@ -194,6 +201,7 @@ export const ScanProcess: React.FC = () => {
             invalidAnswers: 0,
             studentInfo: result.studentInfo || {},
             filename: result.filename,
+            processedImage: result.processedImage,
           };
         }
 
@@ -236,6 +244,7 @@ export const ScanProcess: React.FC = () => {
           invalidAnswers: result.invalidAnswers,
           studentInfo: result.studentInfo,
           filename: result.filename,
+          processedImage: result.processedImage,
         };
       });
 
@@ -338,25 +347,12 @@ export const ScanProcess: React.FC = () => {
     try {
       const selectedExamData = exams.find(exam => exam.examId === selectedExam);
       
-      const pdfData = {
+      // Use the new endpoint for processed sheets with results overlaid
+      const response = await api.post('/scan/download-batch-results-pdf', {
         examId: selectedExam,
         examName: selectedExamData?.name || 'Exam Results',
-        results: filteredResults.map(result => ({
-          studentId: result.studentId,
-          studentName: result.studentName,
-          score: result.score,
-          totalMarks: result.totalMarks,
-          percentage: result.percentage,
-          passFailStatus: result.passFailStatus,
-          correctAnswers: result.correctAnswers,
-          incorrectAnswers: result.incorrectAnswers,
-          blankAnswers: result.blankAnswers,
-          multipleMarks: result.invalidAnswers,
-          studentInfo: result.studentInfo,
-        }))
-      };
-
-      const response = await api.post('/results/download-batch-pdf', pdfData, {
+        processedImages: processedImages
+      }, {
         responseType: 'blob'
       });
 
@@ -364,7 +360,7 @@ export const ScanProcess: React.FC = () => {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${selectedExamData?.name || 'Exam_Results'}_Batch_Results_${new Date().toISOString().split('T')[0]}.pdf`;
+      link.download = `${selectedExamData?.name || 'Exam_Results'}_Processed_Sheets_${new Date().toISOString().split('T')[0]}.pdf`;
       link.click();
       window.URL.revokeObjectURL(url);
       
@@ -393,6 +389,7 @@ export const ScanProcess: React.FC = () => {
     setError('');
     setSuccess('');
     setSolution([]);
+    setProcessedImages([]);
     const fileInput = document.getElementById('file-upload') as HTMLInputElement;
     if (fileInput) {
       fileInput.value = '';
@@ -591,10 +588,11 @@ export const ScanProcess: React.FC = () => {
                 {results.length > 0 && !isScanning && (
                   <button
                     onClick={downloadResultsPDF}
+                    disabled={processedImages.length === 0}
                     className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
                     <Download className="h-4 w-4" />
-                    <span>Download PDF</span>
+                    <span>Download Processed Sheets</span>
                   </button>
                 )}
               </div>
@@ -668,23 +666,24 @@ export const ScanProcess: React.FC = () => {
                 {filteredResults.map((result, index) => (
                   <div
                     key={index}
-                    className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg shadow-sm"
+                    className="grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 border rounded-lg shadow-sm"
                   >
-                    <div className="flex items-center space-x-3">
-                      {result.status === 'success' && <CheckCircle className="h-5 w-5 text-green-600" />}
-                      {result.status === 'warning' && <AlertTriangle className="h-5 w-5 text-yellow-600" />}
-                      {result.status === 'error' && <AlertTriangle className="h-5 w-5 text-red-600" />}
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          {result.studentName} {result.studentInfo?.lockerNumber ? `(#${result.studentInfo.lockerNumber})` : ''}
-                        </p>
-                        {result.studentInfo?.rank && (
-                          <p className="text-sm text-gray-600">Rank: {result.studentInfo.rank}</p>
-                        )}
+                    {/* Student Info and Status */}
+                    <div className="lg:col-span-1">
+                      <div className="flex items-center space-x-3 mb-2">
+                        {result.status === 'success' && <CheckCircle className="h-5 w-5 text-green-600" />}
+                        {result.status === 'warning' && <AlertTriangle className="h-5 w-5 text-yellow-600" />}
+                        {result.status === 'error' && <AlertTriangle className="h-5 w-5 text-red-600" />}
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {result.studentName} {result.studentInfo?.lockerNumber ? `(#${result.studentInfo.lockerNumber})` : ''}
+                          </p>
+                          {result.studentInfo?.rank && (
+                            <p className="text-sm text-gray-600">Rank: {result.studentInfo.rank}</p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
-                      <div className="space-y-1">
+                      <div className="space-y-1 text-sm">
                         <p className="text-sm">
                           <span className="font-medium">Score:</span> {result.score}/{result.totalMarks}
                         </p>
@@ -698,7 +697,11 @@ export const ScanProcess: React.FC = () => {
                           </span>
                         </p>
                       </div>
-                      <div className="space-y-1 mt-2 md:mt-0">
+                    </div>
+                    
+                    {/* Answer Statistics */}
+                    <div className="lg:col-span-1">
+                      <div className="space-y-1 text-sm">
                         <p className="text-sm">
                           <span className="font-medium">Correct:</span> {result.correctAnswers}
                         </p>
@@ -712,6 +715,25 @@ export const ScanProcess: React.FC = () => {
                           <span className="font-medium">Invalid:</span> {result.invalidAnswers}
                         </p>
                       </div>
+                    </div>
+                    
+                    {/* Processed Image Preview */}
+                    <div className="lg:col-span-1">
+                      {result.processedImage && (
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium text-gray-700">Processed Sheet:</p>
+                          <div className="border rounded-lg overflow-hidden">
+                            <img
+                              src={`data:image/jpeg;base64,${result.processedImage}`}
+                              alt={`Processed sheet for ${result.studentName}`}
+                              className="w-full h-32 object-contain bg-gray-50"
+                            />
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            Result overlaid on original sheet
+                          </p>
+                        </div>
+                      )}
                     </div>
                    
                   </div>
