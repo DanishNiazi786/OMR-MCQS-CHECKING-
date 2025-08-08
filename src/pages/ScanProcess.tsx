@@ -29,7 +29,7 @@ interface Exam {
   solutionUploaded: boolean;
   createdAt: string;
   createdBy: string;
-  answerKey?: string[]; // Added to store answer key
+  answerKey?: string[];
 }
 
 interface SolutionItem {
@@ -43,6 +43,15 @@ interface ScanProgress {
   processed: number;
   errors: number;
   status: 'idle' | 'processing' | 'completed' | 'error';
+}
+
+interface StudentInfo {
+  name: string;
+  lockerNumber: string;
+  rank: string;
+  ocrConfidence: number;
+  rawOcrText: string;
+  ocrAvailable: boolean;
 }
 
 interface ProcessingResult {
@@ -61,6 +70,8 @@ interface ProcessingResult {
   incorrectAnswers: number;
   blankAnswers: number;
   invalidAnswers: number;
+  studentInfo?: StudentInfo;
+  filename?: string;
 }
 
 export const ScanProcess: React.FC = () => {
@@ -102,7 +113,6 @@ export const ScanProcess: React.FC = () => {
     try {
       const response = await api.get(`/solutions/${examId}`);
       setSolution(response.data.solutions);
-      // Update exam with answer key
       setExams(prev => prev.map(exam => 
         exam.examId === examId ? { ...exam, answerKey: response.data.solutions.map((sol: SolutionItem) => sol.answer) } : exam
       ));
@@ -129,7 +139,6 @@ export const ScanProcess: React.FC = () => {
       return;
     }
 
-    // Fetch solution before starting scan
     await fetchSolution(selectedExam);
 
     setIsScanning(true);
@@ -146,147 +155,119 @@ export const ScanProcess: React.FC = () => {
     };
     setProgress(initialProgress);
 
-    let processedCount = 0;
-    let errorCount = 0;
-    const processedResults: ProcessingResult[] = [];
-
     try {
       const selectedExamData = exams.find(exam => exam.examId === selectedExam);
       if (!selectedExamData) {
         throw new Error('Selected exam not found');
       }
 
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const file = selectedFiles[i];
-        
-        setProgress(prev => ({
-          ...prev,
-          currentSheet: i + 1,
-          status: 'processing'
-        }));
+      const formData = new FormData();
+      selectedFiles.forEach((file, index) => {
+        formData.append('images', file);
+      });
+      formData.append('examId', selectedExam);
 
-        try {
-          const result = await processAnswerSheet(file, selectedExamData, i + 1);
-          processedResults.push(result);
-          processedCount++;
-          
-          setProgress(prev => ({
-            ...prev,
-            processed: processedCount,
-            errors: errorCount
-          }));
-
-        } catch (error: any) {
-          console.error(`Failed to process sheet ${i + 1}:`, error);
-          errorCount++;
-          
-          setProgress(prev => ({
-            ...prev,
-            processed: processedCount,
-            errors: errorCount
-          }));
-          
-          console.error(`Sheet ${i + 1} processing failed: ${error.message}`);
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-
-      setProgress(prev => ({ 
-        ...prev, 
-        status: 'completed',
-        processed: processedCount,
-        errors: errorCount
-      }));
-
-      if (processedCount > 0) {
-        setSuccess(`Successfully processed ${processedCount} out of ${selectedFiles.length} answer sheets`);
-        // Publish results after successful processing
-        await publishResults(processedResults, selectedExamData);
-      }
-      
-      if (errorCount > 0) {
-        setError(`${errorCount} sheets failed to process. Check the results below.`);
-      }
-
-    } catch (error: any) {
-      console.error('Batch scanning failed:', error);
-      setError(error.message || 'Failed to process answer sheets');
-      setProgress(prev => ({ 
-        ...prev, 
-        status: 'error',
-        processed: processedCount,
-        errors: errorCount
-      }));
-    } finally {
-      setIsScanning(false);
-    }
-  };
-
-  const processAnswerSheet = async (file: File, examData: Exam, sheetNumber: number): Promise<ProcessingResult> => {
-    const formData = new FormData();
-    formData.append('image', file);
-    formData.append('examId', selectedExam);
-    formData.append('studentId', `STUDENT_${sheetNumber.toString().padStart(3, '0')}`);
-
-    try {
-      const response = await api.post('/scan/process', formData, {
+      const response = await api.post('/scan/batch-process', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
 
-      const responseData = response.data.response;
-      const totalMarks = examData.numQuestions * examData.marksPerMcq;
-      let correctAnswers = 0;
-      let incorrectAnswers = 0;
-      let blankAnswers = 0;
-      let invalidAnswers = 0;
+      const { results: batchResults, processedSuccessfully, totalImages } = response.data;
 
-      // Compare responses with solution
-      const responses = responseData.responses;
-      solution.forEach((sol, index) => {
-        const response = responses[index] || '';
-        if (response === '') {
-          blankAnswers++;
-        } else if (response === sol.answer) {
-          correctAnswers++;
-        } else if (response === 'MULTIPLE' || response === 'INVALID') {
-          invalidAnswers++;
-        } else {
-          incorrectAnswers++;
+      const processedResults: ProcessingResult[] = batchResults.map((result: any) => {
+        if (!result.success) {
+          return {
+            studentId: result.studentId,
+            studentName: `Student ${result.studentId}`,
+            score: 0,
+            totalMarks: selectedExamData.numQuestions * selectedExamData.marksPerMcq,
+            percentage: 0,
+            accuracy: 0,
+            confidence: 0,
+            status: 'error',
+            passFailStatus: 'Fail',
+            responses: [],
+            correctAnswers: 0,
+            incorrectAnswers: 0,
+            blankAnswers: 0,
+            invalidAnswers: 0,
+            studentInfo: result.studentInfo || {},
+            filename: result.filename,
+          };
         }
+
+        const totalMarks = selectedExamData.numQuestions * selectedExamData.marksPerMcq;
+        const score = result.score * selectedExamData.marksPerMcq;
+        const percentage = (score / totalMarks * 100) || 0;
+        const passFailStatus = percentage >= selectedExamData.passingPercentage ? 'Pass' : 'Fail';
+
+        // Enhanced name formatting logic
+        let formattedName = result.studentInfo?.name || `Student ${result.studentId}`;
+        if (formattedName) {
+          // Handle cases like "faizanbasheer", "FaizanBasheer", or "faizan Basheer"
+          formattedName = formattedName.trim();
+          if (!formattedName.includes(' ')) {
+            // Insert space before capital letters and handle camelCase
+            formattedName = formattedName.replace(/([a-z])([A-Z])/g, '$1 $2');
+          }
+          // Split by spaces, capitalize each word, and join
+          formattedName = formattedName
+            .split(' ')
+            .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .filter((word: string) => word.length > 0)
+            .join(' ');
+        }
+
+        return {
+          studentId: result.studentId,
+          studentName: formattedName,
+          score: score,
+          totalMarks: totalMarks,
+          percentage: percentage,
+          accuracy: result.accuracy,
+          confidence: result.processingMetadata.confidence,
+          status: result.processingMetadata.confidence > 70 ? 'success' : result.processingMetadata.confidence > 50 ? 'warning' : 'error',
+          passFailStatus: passFailStatus,
+          responses: result.responses,
+          correctAnswers: result.correctAnswers,
+          incorrectAnswers: result.incorrectAnswers,
+          blankAnswers: result.blankAnswers,
+          invalidAnswers: result.invalidAnswers,
+          studentInfo: result.studentInfo,
+          filename: result.filename,
+        };
       });
 
-      const score = correctAnswers * examData.marksPerMcq;
-      const percentage = totalMarks > 0 ? (score / totalMarks) * 100 : 0;
-      const passFailStatus = percentage >= examData.passingPercentage ? 'Pass' : 'Fail';
+      setResults(processedResults);
+      setProgress({
+        currentSheet: totalImages,
+        totalSheets: totalImages,
+        processed: processedSuccessfully,
+        errors: totalImages - processedSuccessfully,
+        status: 'completed',
+      });
 
-      const result: ProcessingResult = {
-        studentId: responseData.studentId,
-        studentName: `Student ${sheetNumber}`,
-        score,
-        totalMarks,
-        percentage,
-        accuracy: responseData.accuracy,
-        confidence: responseData.processingMetadata.confidence,
-        status: responseData.processingMetadata.confidence > 70 ? 'success' : responseData.processingMetadata.confidence > 50 ? 'warning' : 'error',
-        passFailStatus,
-        responses,
-        correctAnswers,
-        incorrectAnswers,
-        blankAnswers,
-        invalidAnswers,
-        issues: responseData.processingMetadata.confidence < 70 ? ['Low confidence detection'] : [],
-      };
+      if (processedSuccessfully > 0) {
+        setSuccess(`Successfully processed ${processedSuccessfully} out of ${totalImages} answer sheets`);
+        await publishResults(processedResults, selectedExamData);
+      }
 
-      setResults(prev => [...prev, result]);
-      
-      await saveResultToDatabase(result, examData);
-      
-      return result;
+      if (totalImages - processedSuccessfully > 0) {
+        setError(`${totalImages - processedSuccessfully} sheets failed to process. Check the results below.`);
+      }
+
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || error.message || 'Processing failed');
+      console.error('Batch scanning failed:', error);
+      setError(error.response?.data?.detail || error.message || 'Failed to process answer sheets');
+      setProgress(prev => ({ 
+        ...prev, 
+        status: 'error',
+        processed: prev.processed,
+        errors: prev.errors + 1
+      }));
+    } finally {
+      setIsScanning(false);
     }
   };
 
@@ -310,6 +291,7 @@ export const ScanProcess: React.FC = () => {
         course: examData.course,
         wing: examData.wing,
         module: examData.module,
+        studentInfo: result.studentInfo,
       };
 
       await api.post('/results/save', resultData);
@@ -334,7 +316,8 @@ export const ScanProcess: React.FC = () => {
           incorrectAnswers: result.incorrectAnswers,
           blankAnswers: result.blankAnswers,
           multipleMarks: result.invalidAnswers,
-          responses: result.responses
+          responses: result.responses,
+          studentInfo: result.studentInfo,
         }))
       };
 
@@ -368,7 +351,8 @@ export const ScanProcess: React.FC = () => {
           correctAnswers: result.correctAnswers,
           incorrectAnswers: result.incorrectAnswers,
           blankAnswers: result.blankAnswers,
-          multipleMarks: result.invalidAnswers
+          multipleMarks: result.invalidAnswers,
+          studentInfo: result.studentInfo,
         }))
       };
 
@@ -680,77 +664,56 @@ export const ScanProcess: React.FC = () => {
                 <p className="text-sm text-gray-400">Start processing to see results here</p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 {filteredResults.map((result, index) => (
                   <div
                     key={index}
-                    className={`border rounded-lg p-4 ${
-                      result.status === 'success' ? 'border-green-200 bg-green-50' :
-                      result.status === 'warning' ? 'border-yellow-200 bg-yellow-50' :
-                      'border-red-200 bg-red-50'
-                    }`}
+                    className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg shadow-sm"
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-3">
-                        {result.status === 'success' && <CheckCircle className="h-5 w-5 text-green-600" />}
-                        {result.status === 'warning' && <AlertTriangle className="h-5 w-5 text-yellow-600" />}
-                        {result.status === 'error' && <AlertTriangle className="h-5 w-5 text-red-600" />}
-                        <span className="font-medium text-gray-900">{result.studentName}</span>
-                      </div>
-                      <div className="flex items-center space-x-4">
-                        <span className={`text-sm font-bold ${
-                          result.passFailStatus === 'Pass' ? 'text-green-700' : 'text-red-700'
-                        }`}>
-                          {result.score}/{result.totalMarks} - {result.passFailStatus}
-                        </span>
-                        <span className={`text-sm font-medium ${
-                          result.status === 'success' ? 'text-green-700' :
-                          result.status === 'warning' ? 'text-yellow-700' :
-                          'text-red-700'
-                        }`}>
-                          {result.status === 'success' ? 'Success' :
-                           result.status === 'warning' ? 'Warning' : 'Error'}
-                        </span>
+                    <div className="flex items-center space-x-3">
+                      {result.status === 'success' && <CheckCircle className="h-5 w-5 text-green-600" />}
+                      {result.status === 'warning' && <AlertTriangle className="h-5 w-5 text-yellow-600" />}
+                      {result.status === 'error' && <AlertTriangle className="h-5 w-5 text-red-600" />}
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {result.studentName} {result.studentInfo?.lockerNumber ? `(#${result.studentInfo.lockerNumber})` : ''}
+                        </p>
+                        {result.studentInfo?.rank && (
+                          <p className="text-sm text-gray-600">Rank: {result.studentInfo.rank}</p>
+                        )}
                       </div>
                     </div>
-                    
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-600">Percentage:</span>
-                        <span className="ml-2 font-medium">{result.percentage.toFixed(1)}%</span>
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
+                      <div className="space-y-1">
+                        <p className="text-sm">
+                          <span className="font-medium">Score:</span> {result.score}/{result.totalMarks}
+                        </p>
+                        <p className="text-sm">
+                          <span className="font-medium">Percentage:</span> {result.percentage.toFixed(1)}%
+                        </p>
+                        <p className="text-sm">
+                          <span className="font-medium">Status:</span> 
+                          <span className={result.passFailStatus === 'Pass' ? 'text-green-700' : 'text-red-700'}>
+                            {result.passFailStatus}
+                          </span>
+                        </p>
                       </div>
-                      <div>
-                        <span className="text-gray-600">Correct:</span>
-                        <span className="ml-2 font-medium text-green-600">{result.correctAnswers}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Incorrect:</span>
-                        <span className="ml-2 font-medium text-red-600">{result.incorrectAnswers}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Blank:</span>
-                        <span className="ml-2 font-medium text-yellow-600">{result.blankAnswers}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Invalid:</span>
-                        <span className="ml-2 font-medium text-red-600">{result.invalidAnswers}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Confidence:</span>
-                        <span className="ml-2 font-medium">{result.confidence}%</span>
+                      <div className="space-y-1 mt-2 md:mt-0">
+                        <p className="text-sm">
+                          <span className="font-medium">Correct:</span> {result.correctAnswers}
+                        </p>
+                        <p className="text-sm">
+                          <span className="font-medium">Incorrect:</span> {result.incorrectAnswers}
+                        </p>
+                        <p className="text-sm">
+                          <span className="font-medium">Blank:</span> {result.blankAnswers}
+                        </p>
+                        <p className="text-sm">
+                          <span className="font-medium">Invalid:</span> {result.invalidAnswers}
+                        </p>
                       </div>
                     </div>
-                    
-                    {result.issues && result.issues.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-gray-200">
-                        <p className="text-sm text-gray-600 mb-1">Issues:</p>
-                        <ul className="text-sm text-gray-700 list-disc list-inside">
-                          {result.issues.map((issue, idx) => (
-                            <li key={idx}>{issue}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                   
                   </div>
                 ))}
               </div>

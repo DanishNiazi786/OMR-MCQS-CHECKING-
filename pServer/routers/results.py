@@ -49,13 +49,60 @@ async def get_all_results(db=Depends(get_database)):
         cursor = db.results.find().sort("processedAt", -1)
         results = await cursor.to_list(length=None)
         
-        # Convert ObjectId to string
+        # Convert ObjectId to string and ensure studentInfo is included
         for result in results:
             result['_id'] = str(result['_id'])
         
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch results")
+
+@router.post("/publish")
+async def publish_results(request_data: dict, db=Depends(get_database)):
+    try:
+        exam_id = request_data.get("examId")
+        exam_name = request_data.get("examName")
+        results = request_data.get("results", [])
+
+        for result in results:
+            result_data = {
+                "examId": exam_id,
+                "examName": exam_name,
+                "studentId": result.get("studentId"),
+                "studentName": result.get("studentName"),
+                "responses": result.get("responses", []),
+                "score": result.get("score", 0),
+                "totalMarks": result.get("totalMarks", 0),
+                "percentage": result.get("percentage", 0.0),
+                "passFailStatus": result.get("passFailStatus", "Fail"),
+                "correctAnswers": result.get("correctAnswers", 0),
+                "incorrectAnswers": result.get("incorrectAnswers", 0),
+                "blankAnswers": result.get("blankAnswers", 0),
+                "multipleMarks": result.get("multipleMarks", 0),
+                "sponsorDS": result.get("sponsorDS"),
+                "course": result.get("course"),
+                "wing": result.get("wing"),
+                "module": result.get("module"),
+                "studentInfo": result.get("studentInfo"),
+                "processedAt": datetime.utcnow()
+            }
+
+            existing_result = await db.results.find_one({
+                "examId": exam_id,
+                "studentId": result.get("studentId")
+            })
+
+            if existing_result:
+                await db.results.update_one(
+                    {"examId": exam_id, "studentId": result.get("studentId")},
+                    {"$set": result_data}
+                )
+            else:
+                await db.results.insert_one(result_data)
+
+        return {"message": f"Successfully published {len(results)} results"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to publish results: {str(e)}")
 
 @router.post("/download-batch-pdf")
 async def download_batch_pdf(request_data: dict):
@@ -71,10 +118,10 @@ async def download_batch_pdf(request_data: dict):
 
         # Title page
         p.setFont("Helvetica-Bold", 20)
-        p.drawCentredText(width/2, height-50, "OMR Checked Answer Sheets")
+        p.drawCentredString(width/2, height-50, "OMR Checked Answer Sheets")
         p.setFont("Helvetica", 14)
-        p.drawCentredText(width/2, height-80, f"Exam: {exam_name}")
-        p.drawCentredText(width/2, height-100, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
+        p.drawCentredString(width/2, height-80, f"Exam: {exam_name}")
+        p.drawCentredString(width/2, height-100, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
 
         # Process each result
         for i, result in enumerate(results):
@@ -83,12 +130,16 @@ async def download_batch_pdf(request_data: dict):
 
             # Header
             p.setFont("Helvetica-Bold", 16)
-            p.drawCentredText(width/2, height-50, f"Answer Sheet - {result['studentName']}")
+            p.drawCentredString(width/2, height-50, f"Answer Sheet - {result['studentName']}")
             p.setFont("Helvetica", 12)
-            p.drawCentredText(width/2, height-70, f"Student ID: {result['studentId']}")
+            p.drawCentredString(width/2, height-70, f"Student ID: {result['studentId']}")
+            if result.get('studentInfo', {}).get('lockerNumber'):
+                p.drawCentredString(width/2, height-90, f"Locker: {result['studentInfo']['lockerNumber']}")
+            if result.get('studentInfo', {}).get('rank'):
+                p.drawCentredString(width/2, height-110, f"Rank: {result['studentInfo']['rank']}")
 
             # Answer grid simulation
-            y_pos = height - 120
+            y_pos = height - 140
             questions_per_row = 5
             
             for j, response in enumerate(result.get('responses', [])):
@@ -129,9 +180,9 @@ async def download_all_pdf(request_data: dict):
 
         # Title
         p.setFont("Helvetica-Bold", 20)
-        p.drawCentredText(width/2, height-50, "OMR Results Report")
+        p.drawCentredString(width/2, height-50, "OMR Results Report")
         p.setFont("Helvetica", 14)
-        p.drawCentredText(width/2, height-80, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
+        p.drawCentredString(width/2, height-80, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
 
         # Statistics
         total_students = len(results)
@@ -162,10 +213,12 @@ async def download_all_pdf(request_data: dict):
         p.setFont("Helvetica", 8)
         p.drawString(50, y_pos, "Student Name")
         p.drawString(150, y_pos, "ID")
-        p.drawString(200, y_pos, "Exam")
-        p.drawString(280, y_pos, "Score")
-        p.drawString(320, y_pos, "%")
-        p.drawString(350, y_pos, "Result")
+        p.drawString(200, y_pos, "Locker")
+        p.drawString(250, y_pos, "Rank")
+        p.drawString(300, y_pos, "Exam")
+        p.drawString(380, y_pos, "Score")
+        p.drawString(420, y_pos, "%")
+        p.drawString(450, y_pos, "Result")
 
         # Table rows
         y_pos -= 20
@@ -176,16 +229,18 @@ async def download_all_pdf(request_data: dict):
 
             p.drawString(50, y_pos, str(result.get('studentName', ''))[:15])
             p.drawString(150, y_pos, str(result.get('studentId', '')))
-            p.drawString(200, y_pos, str(result.get('examName', ''))[:12])
-            p.drawString(280, y_pos, f"{result.get('score', 0)}/{result.get('totalMarks', 0)}")
-            p.drawString(320, y_pos, f"{result.get('percentage', 0):.1f}%")
+            p.drawString(200, y_pos, str(result.get('studentInfo', {}).get('lockerNumber', ''))[:10])
+            p.drawString(250, y_pos, str(result.get('studentInfo', {}).get('rank', ''))[:10])
+            p.drawString(300, y_pos, str(result.get('examName', ''))[:12])
+            p.drawString(380, y_pos, f"{result.get('score', 0)}/{result.get('totalMarks', 0)}")
+            p.drawString(420, y_pos, f"{result.get('percentage', 0):.1f}%")
             
             # Color code the result
             if result.get('passFailStatus') == 'Pass':
                 p.setFillColorRGB(0, 0.5, 0)  # Green
             else:
                 p.setFillColorRGB(1, 0, 0)  # Red
-            p.drawString(350, y_pos, str(result.get('passFailStatus', '')))
+            p.drawString(450, y_pos, str(result.get('passFailStatus', '')))
             p.setFillColorRGB(0, 0, 0)  # Reset to black
             
             y_pos -= 15
@@ -220,10 +275,10 @@ async def get_exam_results(
         sort_order = -1 if order == "desc" else 1
         skip = (page - 1) * limit
 
-        cursor = db.results.find({"examId": exam_id}).sort(sort_by, sort_order).skip(skip).limit(limit)  # Changed to db.results
+        cursor = db.results.find({"examId": exam_id}).sort(sort_by, sort_order).skip(skip).limit(limit)
         responses = await cursor.to_list(length=None)
 
-        total = await db.results.count_documents({"examId": exam_id})  # Changed to db.results
+        total = await db.results.count_documents({"examId": exam_id})
 
         # Convert ObjectId to string
         for response in responses:
@@ -249,7 +304,7 @@ async def get_exam_results(
         raise HTTPException(status_code=500, detail="Failed to fetch results")
 
 async def calculate_exam_stats(exam_id: str, db):
-    cursor = db.results.find({"examId": exam_id})  # Changed to db.results
+    cursor = db.results.find({"examId": exam_id})
     responses = await cursor.to_list(length=None)
     
     exam = await db.exams.find_one({"examId": exam_id})
@@ -300,5 +355,5 @@ async def calculate_exam_stats(exam_id: str, db):
         "lowestScore": lowest_score,
         "passingRate": round(passing_rate, 2),
         "scoreDistribution": score_distribution,
-        "questionAnalysis": []  # Simplified for now
+        "questionAnalysis": []
     }

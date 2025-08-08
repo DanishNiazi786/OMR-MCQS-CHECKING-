@@ -13,25 +13,36 @@ import {
 } from 'lucide-react';
 import { useApi } from '../context/ApiContext';
 
+interface StudentInfo {
+  name: string;
+  lockerNumber: string;
+  rank: string;
+  ocrConfidence: number;
+  rawOcrText: string;
+  ocrAvailable: boolean;
+}
+
 interface StudentResult {
   _id: string;
   examId: string;
   studentId: string;
-  studentName: string;
+  studentName?: string;
+  examName: string;
   score: number;
   totalMarks: number;
   percentage: number;
   passFailStatus: 'Pass' | 'Fail';
-  examName: string;
-  sponsorDS: string;
-  course: string;
-  wing: string;
-  module: string;
-  processedAt: string;
   correctAnswers: number;
   incorrectAnswers: number;
   blankAnswers: number;
   multipleMarks: number;
+  sponsorDS?: string;
+  course?: string;
+  wing?: string;
+  module?: string;
+  processedAt: string;
+  studentInfo?: StudentInfo;
+  passingPercentage?: number;
 }
 
 interface FilterOptions {
@@ -81,13 +92,17 @@ export const StudentResults: React.FC = () => {
       const resultsData = response.data;
       setResults(resultsData);
       
-      // Extract unique values for filters
-      const uniqueExams = [...new Set(resultsData.map((r: StudentResult) => ({
-        examId: r.examId,
-        examName: r.examName
-      })))];
-      const uniqueSponsorDS = [...new Set(resultsData.map((r: StudentResult) => r.sponsorDS))];
-      const uniqueCourses = [...new Set(resultsData.map((r: StudentResult) => r.course))];
+      const uniqueExams = Array.from(
+        new Map(
+          resultsData.map((r: StudentResult) => [r.examId, { examId: r.examId, examName: r.examName }])
+        ).values()
+      ) as Array<{ examId: string; examName: string }>;
+      const uniqueSponsorDS = Array.from(
+        new Set(resultsData.map((r: StudentResult) => r.sponsorDS).filter(Boolean))
+      ) as string[];
+      const uniqueCourses = Array.from(
+        new Set(resultsData.map((r: StudentResult) => r.course).filter(Boolean))
+      ) as string[];
       
       setAvailableFilters({
         exams: uniqueExams,
@@ -104,36 +119,29 @@ export const StudentResults: React.FC = () => {
 
   const applyFilters = () => {
     let filtered = results.filter(result => {
-      // Search filter
       const matchesSearch = !searchTerm || 
-        result.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        result.studentId.toLowerCase().includes(searchTerm.toLowerCase());
+        (result.studentName && result.studentName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        result.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (result.studentInfo?.lockerNumber && result.studentInfo.lockerNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (result.studentInfo?.rank && result.studentInfo.rank.toLowerCase().includes(searchTerm.toLowerCase()));
       
-      // Sponsor DS filter
       const matchesSponsorDS = !filters.sponsorDS || result.sponsorDS === filters.sponsorDS;
-      
-      // Course filter
       const matchesCourse = !filters.course || result.course === filters.course;
-      
-      // Pass/Fail filter
       const matchesPassFail = filters.passFailStatus === 'all' || 
         (filters.passFailStatus === 'pass' && result.passFailStatus === 'Pass') ||
         (filters.passFailStatus === 'fail' && result.passFailStatus === 'Fail');
-      
-      // Exam filter
       const matchesExam = !filters.examId || result.examId === filters.examId;
       
       return matchesSearch && matchesSponsorDS && matchesCourse && matchesPassFail && matchesExam;
     });
 
-    // Apply sorting
     filtered.sort((a, b) => {
       let aValue, bValue;
       
       switch (sortBy) {
         case 'studentName':
-          aValue = a.studentName;
-          bValue = b.studentName;
+          aValue = a.studentName || a.studentInfo?.name || '';
+          bValue = b.studentName || b.studentInfo?.name || '';
           break;
         case 'percentage':
           aValue = a.percentage;
@@ -147,14 +155,16 @@ export const StudentResults: React.FC = () => {
           return 0;
       }
       
-      if (typeof aValue === 'string') {
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
         return sortOrder === 'asc' 
-          ? aValue.localeCompare(bValue as string)
-          : (bValue as string).localeCompare(aValue);
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      } else if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return sortOrder === 'asc' 
+          ? aValue - bValue
+          : bValue - aValue;
       } else {
-        return sortOrder === 'asc' 
-          ? (aValue as number) - (bValue as number)
-          : (bValue as number) - (aValue as number);
+        return 0;
       }
     });
 
@@ -193,7 +203,6 @@ export const StudentResults: React.FC = () => {
     setSearchTerm('');
   };
 
-  // Calculate statistics
   const stats = {
     total: filteredResults.length,
     passed: filteredResults.filter(r => r.passFailStatus === 'Pass').length,
@@ -203,14 +212,12 @@ export const StudentResults: React.FC = () => {
       : 0
   };
 
-  // Pagination
   const totalPages = Math.ceil(filteredResults.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedResults = filteredResults.slice(startIndex, startIndex + itemsPerPage);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Student Results</h1>
         <p className="text-gray-600 mt-2">
@@ -218,7 +225,6 @@ export const StudentResults: React.FC = () => {
         </p>
       </div>
 
-      {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
@@ -269,7 +275,6 @@ export const StudentResults: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-900">Filters & Search</h2>
@@ -293,7 +298,6 @@ export const StudentResults: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          {/* Search */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Search Students
@@ -305,12 +309,11 @@ export const StudentResults: React.FC = () => {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Name or ID..."
+                placeholder="Search by name, ID, locker, or rank"
               />
             </div>
           </div>
 
-          {/* Exam Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Exam
@@ -329,7 +332,6 @@ export const StudentResults: React.FC = () => {
             </select>
           </div>
 
-          {/* Sponsor DS Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Sponsor DS
@@ -348,7 +350,6 @@ export const StudentResults: React.FC = () => {
             </select>
           </div>
 
-          {/* Course Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Course
@@ -367,7 +368,6 @@ export const StudentResults: React.FC = () => {
             </select>
           </div>
 
-          {/* Pass/Fail Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Result
@@ -383,7 +383,6 @@ export const StudentResults: React.FC = () => {
             </select>
           </div>
 
-          {/* Sort Options */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Sort By
@@ -409,7 +408,6 @@ export const StudentResults: React.FC = () => {
         </div>
       </div>
 
-      {/* Results Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center justify-between">
@@ -423,7 +421,7 @@ export const StudentResults: React.FC = () => {
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           </div>
-        ) : paginatedResults.length === 0 ? (
+        ) : filteredResults.length === 0 ? (
           <div className="text-center py-12">
             <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <p className="text-gray-500">No results found</p>
@@ -451,6 +449,12 @@ export const StudentResults: React.FC = () => {
                       Result
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Locker
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Rank
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Sponsor DS
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -466,7 +470,9 @@ export const StudentResults: React.FC = () => {
                     <tr key={result._id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{result.studentName}</div>
+                          <div className="text-sm font-medium text-gray-900">
+                            {result.studentName || result.studentInfo?.name || 'Unknown'}
+                          </div>
                           <div className="text-sm text-gray-500">ID: {result.studentId}</div>
                         </div>
                       </td>
@@ -481,8 +487,8 @@ export const StudentResults: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`text-sm font-medium ${
-                          result.percentage >= result.passingPercentage 
-                            ? 'text-green-600' 
+                          result.percentage >= (result.passingPercentage || 60)
+                            ? 'text-green-600'
                             : 'text-red-600'
                         }`}>
                           {result.percentage.toFixed(1)}%
@@ -498,10 +504,16 @@ export const StudentResults: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {result.sponsorDS}
+                        {result.studentInfo?.lockerNumber || '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {result.course}
+                        {result.studentInfo?.rank || '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {result.sponsorDS || '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {result.course || '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(result.processedAt).toLocaleDateString()}
@@ -512,7 +524,6 @@ export const StudentResults: React.FC = () => {
               </table>
             </div>
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
                 <div className="flex items-center space-x-2">
