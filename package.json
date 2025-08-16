@@ -1,0 +1,95 @@
+{
+  "name": "efsoft-omr-software",
+  "private": true,
+  "version": "1.0.0",
+  "description": "EFSoft OMR Software - Complete desktop application for optical mark recognition",
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"python pserver/main.py\" \"npm run dev:client\"",
+    "dev:client": "vite",
+    "dev:server": "cd server && node index.js",
+    "build": "vite build",
+    "build:electron": "electron-builder",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"npm run dev:client\" \"wait-on http://localhost:5173 && electron .\"",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@assemblyscript/loader": "^0.28.3",
+    "archiver": "^7.0.1",
+    "axios": "^1.7.9",
+    "canvas": "^2.11.2",
+    "chart.js": "^4.4.7",
+    "cors": "^2.8.5",
+    "csv-parser": "^3.2.0",
+    "date-fns": "^4.1.0",
+    "electron": "^33.3.0",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "html2canvas": "^1.4.1",
+    "jimp": "^1.6.0",
+    "jspdf": "^2.5.1",
+    "lucide-react": "^0.344.0",
+    "mongoose": "^8.9.3",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^3.3.2",
+    "nodemon": "^3.1.10",
+    "opencv-wasm": "^4.3.0-10",
+    "papaparse": "^5.5.3",
+    "pdf-parse": "^1.1.1",
+    "pdf2pic": "^3.2.0",
+    "pdfkit": "^0.15.0",
+    "react": "^18.3.1",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18.3.1",
+    "react-dropzone": "^14.3.8",
+    "react-router-dom": "^7.1.1",
+    "tesseract.js": "^6.0.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.1",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.18",
+    "concurrently": "^7.6.0",
+    "electron-builder": "^25.1.8",
+    "eslint": "^9.9.1",
+    "eslint-plugin-react-hooks": "^5.1.0-rc.0",
+    "eslint-plugin-react-refresh": "^0.4.11",
+    "globals": "^15.9.0",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^8.3.0",
+    "uuid": "^11.0.3",
+    "vite": "^5.4.2",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.efsoft.omr",
+    "productName": "EFSoft OMR Software",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "server/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
