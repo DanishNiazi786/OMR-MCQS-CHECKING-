@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, User, AlertCircle } from 'lucide-react';
+import { AuthContext } from '../App'; // Import AuthContext from App.tsx
 
 // Hard-coded credentials
 const VALID_CREDENTIALS = {
@@ -14,6 +15,7 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const authContext = useContext(AuthContext);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,7 +25,8 @@ export const Login: React.FC = () => {
     // Simulate API call delay
     setTimeout(() => {
       if (username === VALID_CREDENTIALS.username && password === VALID_CREDENTIALS.password) {
-        localStorage.setItem('isAuthenticated', 'true'); // Set auth flag
+        sessionStorage.setItem('isAuthenticated', 'true');
+        if (authContext) authContext.setIsAuth(true); // Update auth state
         navigate('/', { replace: true }); // Redirect to dashboard
       } else {
         setError('Invalid username or password');
