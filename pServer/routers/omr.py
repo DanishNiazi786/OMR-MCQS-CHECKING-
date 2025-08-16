@@ -217,31 +217,108 @@ def generate_omr_pdf(exam, student):
         p.drawString(margin + 10, y_pos - 50, f"Rank: {student['rank']}")
         p.drawString(margin + 10, y_pos - 65, f"Name: {student['name']}")
 
-        # Instructions box
+        # Instructions box with improved visual guide
         instructions_x = margin + box_width + margin
         p.rect(instructions_x, y_pos - box_height, box_width, box_height)
         p.setFont("Helvetica-Bold", 10)
-        p.drawString(instructions_x + 10, y_pos - 20, "INSTRUCTIONS")
-        p.setFont("Helvetica", 8)
-        instructions = exam.get("instructions", "Please fill the bubbles completely with a dark pencil. Mark only one answer per question.")
+        p.drawString(instructions_x + 10, y_pos - 15, "INSTRUCTIONS")
+
+        # Draw visual guide with proper spacing from heading
+        guide_y = y_pos - 35  # More space from INSTRUCTIONS heading
+        bubble_radius = 5
+        bubble_spacing = 14
         
-        # Split instructions into lines
-        lines = []
-        words = instructions.split()
-        current_line = ""
-        for word in words:
-            if len(current_line + word) < 35:  # Approximate character limit per line
-                current_line += word + " "
-            else:
-                lines.append(current_line.strip())
-                current_line = word + " "
-        if current_line:
-            lines.append(current_line.strip())
+        # Correct method section
+        p.setFont("Helvetica-Bold", 8)
+        p.drawString(instructions_x + 5, guide_y, "Correct method")
         
-        line_y = y_pos - 35
-        for line in lines[:3]:  # Limit to 3 lines
-            p.drawString(instructions_x + 10, line_y, line)
-            line_y -= 12
+        # Draw the "Correct method" box outline
+        correct_box_x = instructions_x + 80
+        correct_box_y = guide_y - 10
+        correct_box_width = 70
+        correct_box_height = 18
+        p.rect(correct_box_x, correct_box_y, correct_box_width, correct_box_height)
+        
+        # Draw bubbles for correct method (A B C D with C completely filled)
+        start_x = correct_box_x + 10
+        bubble_y = correct_box_y + 9
+        
+        # A - empty circle
+        p.circle(start_x, bubble_y, bubble_radius, fill=0)
+        p.setFont("Helvetica-Bold", 6)
+        p.drawCentredString(start_x, bubble_y - 2, "A")
+        
+        # B - empty circle
+        start_x += bubble_spacing
+        p.circle(start_x, bubble_y, bubble_radius, fill=0)
+        p.drawCentredString(start_x, bubble_y - 2, "B")
+        
+        # C - completely filled circle (correct answer) - NO LETTER VISIBLE
+        start_x += bubble_spacing
+        p.circle(start_x, bubble_y, bubble_radius, fill=1)
+        # Don't draw the letter C - it should be invisible in a properly filled bubble
+        
+        # D - empty circle
+        start_x += bubble_spacing
+        p.circle(start_x, bubble_y, bubble_radius, fill=0)
+        p.drawCentredString(start_x, bubble_y - 2, "D")
+
+        # Wrong methods section
+        guide_y -= 25
+        p.setFont("Helvetica-Bold", 8)
+        p.drawString(instructions_x + 5, guide_y, "Wrong methods")
+        
+        # Draw the "Wrong methods" box outline
+        wrong_box_x = instructions_x + 80
+        wrong_box_y = guide_y - 10
+        wrong_box_width = 70
+        wrong_box_height = 18
+        p.rect(wrong_box_x, wrong_box_y, wrong_box_width, wrong_box_height)
+        
+        # Draw bubbles for wrong methods (showing multiple marks, partial fills, etc.)
+        start_x = wrong_box_x + 10
+        bubble_y = wrong_box_y + 9
+        
+        # A - half-filled bubble (crescent moon effect)
+        p.circle(start_x, bubble_y, bubble_radius, fill=0)
+        # Draw semicircle fill (left half)
+        p.arc(start_x - bubble_radius, bubble_y - bubble_radius, 
+              start_x, bubble_y + bubble_radius, 
+              0, 360)
+        # Fill left semicircle with small rectangles
+        for i in range(-bubble_radius, 1):
+            for j in range(-bubble_radius, bubble_radius + 1):
+                if (i*i + j*j) <= bubble_radius*bubble_radius:
+                    p.rect(start_x + i, bubble_y + j, 0.7, 0.7, fill=1, stroke=0)
+        p.setFont("Helvetica-Bold", 6)
+        p.drawCentredString(start_x, bubble_y - 2, "A")
+        
+        # B - empty circle with center dot
+        start_x += bubble_spacing
+        p.circle(start_x, bubble_y, bubble_radius, fill=0)
+        # Draw center dot
+        p.circle(start_x, bubble_y, 1.5, fill=1)
+        p.drawCentredString(start_x, bubble_y - 2, "B")
+        
+        # C - checkmark/tick (correct mark but wrong method)
+        start_x += bubble_spacing
+        p.circle(start_x, bubble_y, bubble_radius, fill=0)
+        # Draw checkmark
+        p.setLineWidth(2)
+        p.line(start_x - 2.5, bubble_y, start_x - 1, bubble_y - 2.5)
+        p.line(start_x - 1, bubble_y - 2.5, start_x + 2.5, bubble_y + 1.5)
+        p.setLineWidth(1)
+        p.drawCentredString(start_x, bubble_y - 2, "C")
+        
+        # D - X mark (crossing out)
+        start_x += bubble_spacing
+        p.circle(start_x, bubble_y, bubble_radius, fill=0)
+        # Draw X mark
+        p.setLineWidth(2)
+        p.line(start_x - 3, bubble_y - 3, start_x + 3, bubble_y + 3)
+        p.line(start_x - 3, bubble_y + 3, start_x + 3, bubble_y - 3)
+        p.setLineWidth(1)
+        p.drawCentredString(start_x, bubble_y - 2, "D")
 
         # MCQ bubbles section
         y_pos -= box_height + 30
@@ -280,6 +357,7 @@ def generate_omr_pdf(exam, student):
                         p.circle(bubble_x + bubble_size/2, question_y + bubble_size/2, bubble_size/2, fill=0)
                         p.setFont("Helvetica", 6)
                         p.drawCentredString(bubble_x + bubble_size/2, question_y + bubble_size/2 - 2, ["A", "B", "C", "D", "E"][j])
+
 
         # Footer
         footer_y = 50

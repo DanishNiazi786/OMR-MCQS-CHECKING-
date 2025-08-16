@@ -16,7 +16,6 @@ interface ExamForm {
   course: string;
   module: string;
   sponsorDS: string;
-  instructions: string;
 }
 
 interface Student {
@@ -43,7 +42,7 @@ export const ExamCreation: React.FC = () => {
     course: '',
     module: '',
     sponsorDS: '',
-    instructions: 'Fill bubbles neatly with a black/blue pen, mark only one option per question—any extra, unclear, or incorrect marking will be considered wrong.',
+    
   });
   
   const [students, setStudents] = useState<Student[]>([]);
@@ -98,7 +97,7 @@ export const ExamCreation: React.FC = () => {
         course: form.course.trim(),
         module: form.module.trim(),
         sponsorDS: form.sponsorDS.trim(),
-        instructions: form.instructions.trim(),
+       
         studentsUploaded: false,
         solutionUploaded: false,
         createdAt: new Date().toISOString(),
@@ -368,18 +367,7 @@ export const ExamCreation: React.FC = () => {
               </div>
             </div>
 
-            <div className="mt-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Instructions
-              </label>
-              <textarea
-                value={form.instructions}
-                onChange={(e) => setForm(prev => ({ ...prev, instructions: e.target.value }))}
-                rows={4}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter instructions for students"
-              />
-            </div>
+            
 
             {/* Summary */}
             <div className="mt-6 p-4 bg-gray-50 rounded-lg">
